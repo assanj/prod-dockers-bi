@@ -1,0 +1,32 @@
+# docker-compose-tabix.yml
+services:
+  tabix:
+    image: spoonest/clickhouse-tabix-web-client:latest
+    container_name: tabix
+    ports:
+      - 8181:80  # Веб-интерфейс Tabix на порту 8080
+    environment:
+      # Подключаемся к твоему существующему ClickHouse
+      TABIX_DEFAULT_SERVER: ${CLICKHOUSE_HOST:-clickhouse}  # ← хост твоего ClickHouse
+      TABIX_DEFAULT_PORT: ${CLICKHOUSE_PORT:-8123}          # ← порт
+      TABIX_DEFAULT_LOGIN: ${CLICKHOUSE_USER:-default}      # ← пользователь
+      TABIX_DEFAULT_PASSWORD: ${CLICKHOUSE_PASSWORD:-}      # ← пароль
+      # Дополнительные настройки:
+      TABIX_DEFAULT_DATABASE: ${CLICKHOUSE_DB:-default}     # ← база данных
+      TABIX_TITLE: "ClickHouse Tabix"                       # ← заголовок
+      TABIX_READONLY: "false"                               # ← только чтение?
+    #networks:
+    #  - bi-network  # ← в ту же сеть что и все
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # ← для Linux Docker < 20.10  
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8181/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+#networks:
+#  bi-network:
+#    external: true
+#    name: prod-postgres_bi-network  # ← или другая сеть где твой ClickHouse

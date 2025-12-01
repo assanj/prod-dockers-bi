@@ -1,0 +1,87 @@
+services:
+  # Локальный PostgreSQL для fallback
+  metabase-postgres:
+    image: postgres:16
+    container_name: metabase_postgres
+    profiles: ["fallback-db"]
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_ADMIN_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:-postgres}
+      POSTGRES_DB: postgres
+      POSTGRES_HOST_AUTH_METHOD: md5
+    volumes:
+      - metabase_postgres_data:/var/lib/postgresql/data
+    networks:
+      - bi-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_ADMIN_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Init контейнер (только psql, без Python)
+  metabase-init:
+    image: postgres:16
+    container_name: metabase_init
+    env_file:
+      - ../.env
+    environment:
+      - SHARED_POSTGRES_HOST=${POSTGRES_HOST:-prod-postgres}
+      - SHARED_POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      - POSTGRES_ADMIN_USER=${POSTGRES_ADMIN_USER:-postgres}
+      - POSTGRES_ADMIN_PASSWORD=${POSTGRES_ADMIN_PASSWORD:-postgres}
+      - METABASE_DB_USER=${METABASE_DATABASE_USER:-metabase}
+      - METABASE_DB_PASSWORD=${METABASE_DATABASE_PASSWORD:-metabase}
+      - METABASE_DB_NAME=${METABASE_DATABASE_NAME:-metabase}
+      - FALLBACK_POSTGRES_HOST=metabase_postgres
+      - FALLBACK_POSTGRES_PORT=5432
+    volumes:
+      - ./docker-metabase-init.sh:/docker-metabase-init.sh
+    command: ["sh", "/docker-metabase-init.sh"]
+    networks:
+      - bi-network
+    restart: "on-failure:1"
+    depends_on:
+      metabase-postgres:
+        condition: service_healthy
+        required: false
+
+  # Основной Metabase
+  metabase:
+    depends_on:
+      metabase-init:
+        condition: service_completed_successfully
+    env_file:
+      - ../.env
+    image: metabase/metabase:latest
+    container_name: metabase
+    hostname: metabase
+    restart: unless-stopped
+    volumes:
+      - /dev/urandom:/dev/random:ro
+    ports:
+      - 3000:3000
+    environment:
+      MB_DB_TYPE: postgres
+      MB_DB_HOST: ${METABASE_FINAL_DB_HOST:-prod-postgres}
+      MB_DB_PORT: 5432
+      MB_DB_DBNAME: ${METABASE_DATABASE_NAME:-metabase}
+      MB_DB_USER: ${METABASE_DATABASE_USER:-metabase}
+      MB_DB_PASS: ${METABASE_DATABASE_PASSWORD:-metabase}
+    networks:
+      - bi-network
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "-I", "http://localhost:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+networks:
+  bi-network:
+    external: true
+    name: prod-postgres_bi-network
+
+volumes:
+  metabase_postgres_data:
+    external: false

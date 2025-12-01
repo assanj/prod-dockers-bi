@@ -1,0 +1,144 @@
+## Шаг 1: Обновление системы
+```bash
+sudo apt update
+sudo apt upgrade -y
+```
+
+## Шаг 2: Установка Docker
+```bash
+sudo apt install docker.io -y
+sudo systemctl enable docker
+sudo systemctl start docker
+```
+
+## Шаг 3: Установка Docker Compose
+```bash
+sudo apt install docker-compose -y
+```
+
+## Шаг 4: Добавление пользователя в группу docker
+```bash
+sudo usermod -aG docker $USER
+```
+**ВАЖНО:** После этой команды выйдите из системы и зайдите обратно, либо выполните:
+```bash
+newgrp docker
+```
+
+## Шаг 5: Создание директории проекта
+```bash
+mkdir ~/metabase-project
+cd ~/metabase-project
+```
+
+## Шаг 6: Создание структуры папок
+```bash
+mkdir -p data/plugins
+mkdir scripts
+mkdir config
+```
+
+## Шаг 7: Создание docker-compose.yml
+```bash
+cat > docker-compose.yml << 'EOF'
+version: '3.8'
+
+services:
+  metabase:
+    image: metabase/metabase:latest
+    container_name: metabase
+    hostname: metabase
+    ports:
+      - "3000:3000"
+    environment:
+      MB_DB_TYPE: h2
+      MB_DB_FILE: /metabase-data/metabase.db
+      MB_PLUGINS_DIR: /plugins
+    volumes:
+      - ./data:/metabase-data
+      - ./data/plugins:/plugins
+    restart: unless-stopped
+    healthcheck:
+      test: curl -f http://localhost:3000/api/health || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 3
+EOF
+```
+
+## Шаг 8: Создание скрипта развертывания
+```bash
+cat > scripts/deploy.sh << 'EOF'
+#!/bin/bash
+
+echo "Starting Metabase deployment..."
+
+# Pull latest Metabase image
+docker-compose pull
+
+# Start services
+docker-compose up -d
+
+echo "Waiting for Metabase to start..."
+sleep 30
+
+# Check if Metabase is running
+if curl -f http://localhost:3000/api/health; then
+    echo "Metabase is running successfully!"
+    echo "Access it at: http://localhost:3000"
+else
+    echo "Metabase might be taking longer to start. Check logs with: docker-compose logs metabase"
+fi
+EOF
+```
+
+## Шаг 9: Назначение прав на скрипт
+```bash
+chmod +x scripts/deploy.sh
+```
+
+## Шаг 10: Инициализация Git
+```bash
+git init
+```
+
+## Шаг 11: Создание .gitignore
+```bash
+cat > .gitignore << 'EOF'
+data/
+backups/
+*.tar.gz
+.env
+.DS_Store
+EOF
+```
+
+## Шаг 12: Добавление файлов в Git
+```bash
+git add .
+git commit -m "Initial Metabase project setup"
+```
+
+## Шаг 13: Запуск развертывания
+```bash
+./scripts/deploy.sh
+```
+
+## Шаг 14: Проверка работы
+```bash
+# Проверим статус контейнера
+docker-compose ps
+
+# Посмотрим логи
+docker-compose logs metabase
+```
+
+## Шаг 15: Открытие Metabase в браузере
+Откройте браузер и перейдите по адресу:
+```
+http://localhost:3000
+```
+
+**Готово!** Metabase должен быть доступен по указанному адресу.
+
+Если на каком-то шаге возникнут ошибки - сообщи, помогу решить!

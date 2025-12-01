@@ -1,0 +1,29 @@
+# Docker
+<<<<<<< HEAD
+#docker/.env
+#docker/.env-local
+=======
+##docker/.env         # uncomment on prod for security
+##docker/.env-local   # uncomment on prod for security
+>>>>>>> bcea2c2 (Update .gitignore: comment out env files)
+
+# Volumes
+superset_home/
+db_home/
+redis/
+
+# Логи
+*.log
+logs/
+
+# Временные файлы
+tmp/
+temp/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,92 @@
+BI-STACK ARCHITECTURE
+=====================
+
+ОБЩАЯ СТРУКТУРА
+---------------
+~/prod-dockers-bi/
+├── .env                    # Общие переменные окружения
+├── prod-postgres/          # Общий PostgreSQL
+│   └── docker-compose.yml  # PostgreSQL 16
+├── prod-superset/          # Apache Superset  
+│   ├── docker-compose-non-dev-clickhouse.yml
+│   └── docker/
+│       └── docker-init-smart.sh  # ПОЛНЫЙ скрипт инициализации
+└── prod-metabase/          # Metabase
+    ├── docker-compose.yml
+    └── docker-metabase-init.sh    # ПОЛНЫЙ скрипт инициализации
+
+СЕРВИСЫ
+-------
+
+1. POSTGRESQL (prod-postgres)
+- Контейнер: prod-postgres
+- Сеть: prod-postgres_bi-network (external: false)
+- Том: postgres_data (external: false, name: ${POSTGRES_VOLUME_NAME:-postgres_data})
+- Порт: 5432
+- Credentials: из .env (POSTGRES_ADMIN_USER/PASSWORD)
+- Аутентификация: md5 (POSTGRES_HOST_AUTH_METHOD)
+
+2. SUPERSET (prod-superset)
+- Основной контейнер: superset_app (порт 8088)
+- Init контейнер: superset_init (command: ["/app/docker/docker-init-smart.sh"])
+- Worker: superset-worker, superset-worker-beat
+- Redis: superset_cache
+- Fallback БД: superset_db (только с --profile fallback-db)
+- Логика скрипта docker-init-smart.sh:
+  1. Проверяет доступность prod-postgres:5432
+  2. Пытается подключиться как superset:superset
+  3. Если не получается → подключается как postgres:postgres
+  4. Создает пользователя superset и БД superset если не существуют
+  5. Использует shared БД или local fallback
+  6. Запускает superset db upgrade, create-admin, init
+
+3. METABASE (prod-metabase)
+- Основной контейнер: metabase (порт 3000)
+- Init контейнер: metabase_init (command: ["sh", "/docker-metabase-init.sh"])
+- Логика скрипта docker-metabase-init.sh:
+  1. Проверяет доступность prod-postgres:5432
+  2. Проверяет существование пользователя metabase и БД metabase через Python/psycopg2
+  3. Если не существуют → создает
+  4. Аналогичная логика Superset, но для Metabase
+- Зависимость: metabase зависит от metabase-init (service_completed_successfully)
+
+СЕТЬ
+----
+- Имя: prod-postgres_bi-network
+- Тип: bridge
+- Создание: автоматически при запуске PostgreSQL (external: false в PostgreSQL compose)
+- Использование: все сервисы подключаются к одной сети
+- Внешнее использование: external: true в Superset и Metabase compose файлах
+
+ПЕРЕМЕННЫЕ ОКРУЖЕНИЯ (.env)
+---------------------------
+POSTGRES_HOST=prod-postgres
+POSTGRES_PORT=5432
+POSTGRES_ADMIN_USER=postgres
+POSTGRES_ADMIN_PASSWORD=postgres
+POSTGRES_HOST_AUTH_METHOD=md5
+
+SUPERSET_DATABASE_USER=superset
+SUPERSET_DATABASE_PASSWORD=superset
+SUPERSET_DATABASE_NAME=superset
+
+METABASE_DATABASE_USER=metabase
+METABASE_DATABASE_PASSWORD=metabase
+METABASE_DATABASE_NAME=metabase
+
+ПОРЯДОК ЗАПУСКА
+---------------
+1. PostgreSQL: docker compose up -d (создает сеть)
+2. Superset: docker compose -f docker-compose-non-dev-clickhouse.yml up -d
+3. Metabase: docker compose up -d
+
+ВАЖНЫЕ ПРИНЦИПЫ
+---------------
+- НЕ упрощать код без явного запроса пользователя
+- Init скрипты создают пользователей/БД только если не существуют
+- Все скрипты сохраняются в полном виде без сокращений
+- external: false для сетей/томов в основном проекте (PostgreSQL)
+- external: true для сетей в зависимых проектах (Superset, Metabase)
+- Один .env файл для всех сервисов с дефолтными значениями
+- Переменные подстановки в docker-compose: ${VAR_NAME:-default}
+- Зависимости через depends_on с condition: service_completed_successfully
