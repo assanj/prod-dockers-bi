@@ -1,0 +1,29 @@
+
+# result interfaces:
+http://127.0.0.1:8123
+http://localhost:8088/
+http://localhost:3000/
+http://dash.tabix.io/signin
+jdbc:postgresql://10.199.80.55:5432/postgres
+jdbc:clickhouse://10.199.80.55:8123/default
+
+
+# my repo
+https://github.com/assanj/prod-dockers-bi
+https://hub.docker.com/repositories/assanj
+
+
+#install docs
+https://clickhouse.com/docs/install/debian_ubuntu
+https://ruvds.com/ru/helpcenter/kak-ustanovit-i-ispolzovat-clickhouse-na-ubuntu-20-04/?ysclid=mie996buss981374324
+https://hub.docker.com/r/clickhouse/clickhouse-server/
+
+https://superset.apache.org/docs/installation/docker-compose/
+https://superset.apache.org/docs/configuration/databases/#clickhouse
+
+https://www.metabase.com/docs/latest/installation-and-operation/running-metabase-on-docker
+
+https://tabix.io/
+https://hub.docker.com/r/spoonest/clickhouse-tabix-web-client/tags
+
+https://hop.apache.org/download/

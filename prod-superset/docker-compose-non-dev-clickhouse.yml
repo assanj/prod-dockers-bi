@@ -113,8 +113,8 @@ services:
       - DATABASE_USER=${DATABASE_USER:-superset}
       - DATABASE_PASSWORD=${DATABASE_PASSWORD:-superset}
       - DATABASE_DB=${DATABASE_DB:-superset}
-      - POSTGRES_USER=${POSTGRES_USER:-postgres}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}   
+      - POSTGRES_ADMIN_USER=${POSTGRES_ADMIN_USER:-postgres}        # ← postgres
+      - POSTGRES_ADMIN_PASSWORD=${POSTGRES_ADMIN_PASSWORD:-postgres} # ← postgres123
     depends_on:
       redis:
         condition: service_started
