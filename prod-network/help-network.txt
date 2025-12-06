@@ -1,0 +1,53 @@
+cd ~/prod-dockers-bi/prod-network
+docker compose up -d
+
+# Проверить сеть
+docker network ls | grep bi-network
+docker network inspect bi-network 
+
+# Проверить контейнер
+docker ps | grep glances
+
+
+# Проверить веб-интерфейс Glances
+curl -s http://localhost:61208 | head -20
+
+# Или посмотреть логи
+docker logs glances --tail 10
+
+
+# Удалить сеть (если нет контейнеров)
+docker network rm prod-postgres_bi-network 2>/dev/null || true
+# или принудительно непустую:
+docker network rm -f prod-postgres_bi-network
+
+# Проверить, что сети нет
+docker network ls | grep -E "bi-network|prod-postgres"
+
+
+
+# Удалить сети от остановленных сервисов
+docker network rm prod-redis_default tabix_default 2>/dev/null || true
+
+# Проверить остались ли другие сети
+docker network ls
+
+
+Это системные сети Docker:
+
+    bridge - дефолтная сеть для контейнеров без явной сети
+
+    host - режим host networking (контейнер использует сеть хоста)
+
+    none - без сети
+    
+    ======
+    Останавливаем всё
+bash
+
+cd ~/prod-dockers-bi && find . -name "docker-compose.yml" -o -name "docker-compose*.yml" | while read file; do
+  dir=$(dirname "$file")
+  echo "Stopping in $dir"
+  cd "$dir" && docker compose down 2>/dev/null || true
+  cd ~/prod-dockers-bi
+done

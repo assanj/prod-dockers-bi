@@ -1,79 +1,67 @@
 #!/bin/bash
-echo '=== METABASE DATABASE INITIALIZATION ==='
+set -e
 
-# Определяем какой PostgreSQL использовать
-echo "Testing shared PostgreSQL ($SHARED_POSTGRES_HOST:$SHARED_POSTGRES_PORT)..."
-if timeout 5 bash -c "cat < /dev/null > /dev/tcp/$SHARED_POSTGRES_HOST/$SHARED_POSTGRES_PORT"; then
-  echo '✓ Shared PostgreSQL is reachable'
-  FINAL_POSTGRES_HOST="$SHARED_POSTGRES_HOST"
-  USE_SHARED=true
+echo "=== METABASE DATABASE INITIALIZATION ==="
+
+# Параметры
+PG_HOST="localhost"
+PG_PORT="${POSTGRES_PORT:-5432}"
+PG_ADMIN_USER="${POSTGRES_ADMIN_USER:-postgres}"
+PG_ADMIN_PASS="${POSTGRES_ADMIN_PASSWORD:-postgres}"
+MB_USER="${METABASE_DATABASE_USER:-metabase}"
+MB_PASS="${METABASE_DATABASE_PASSWORD:-metabase}"
+MB_DB="${METABASE_DATABASE_NAME:-metabase}"
+
+echo "Конфигурация:"
+echo "  PostgreSQL: $PG_HOST:$PG_PORT"
+echo "  Админ: $PG_ADMIN_USER"
+echo "  Пользователь Metabase: $MB_USER"
+echo "  БД Metabase: $MB_DB"
+
+# Проверка доступности PostgreSQL
+echo "Проверка подключения к PostgreSQL..."
+export PGPASSWORD="$PG_ADMIN_PASS"
+
+if psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_ADMIN_USER" -d postgres -c "SELECT 1" >/dev/null 2>&1; then
+  echo "✓ PostgreSQL доступен"
 else
-  echo '✗ Shared PostgreSQL not reachable, testing fallback...'
-  
-  # Проверяем fallback PostgreSQL
-  if timeout 5 bash -c "cat < /dev/null > /dev/tcp/$FALLBACK_POSTGRES_HOST/$FALLBACK_POSTGRES_PORT"; then
-    echo '✓ Fallback PostgreSQL is reachable'
-    FINAL_POSTGRES_HOST="$FALLBACK_POSTGRES_HOST"
-    USE_SHARED=false
-  else
-    echo '✗ Both PostgreSQL servers are unreachable'
-    exit 1
-  fi
+  echo "✗ Не удалось подключиться к PostgreSQL"
+  echo "Проверьте пароль для пользователя '$PG_ADMIN_USER' в файле .env"
+  exit 1
 fi
 
-echo "Configuration:"
-echo "  PostgreSQL Host: $FINAL_POSTGRES_HOST:5432"
-echo "  Admin User: $POSTGRES_ADMIN_USER"
-echo "  Metabase DB User: $METABASE_DB_USER"
-echo "  Metabase DB Name: $METABASE_DB_NAME"
-echo "  Using: $($USE_SHARED && echo 'SHARED' || echo 'FALLBACK') database"
+# Создание пользователя Metabase
+echo "Проверка пользователя $MB_USER..."
+USER_EXISTS=$(psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_ADMIN_USER" -d postgres -t -c \
+  "SELECT 1 FROM pg_roles WHERE rolname='$MB_USER';" 2>/dev/null | tr -d '[:space:]')
 
-# Для shared PostgreSQL проверяем существование пользователя/БД
-if [ "$USE_SHARED" = true ]; then
-  echo "Checking if user and database exist in shared PostgreSQL..."
-  
-  # Проверяем существует ли пользователь
-  USER_EXISTS=$(PGPASSWORD="$POSTGRES_ADMIN_PASSWORD" psql -h "$FINAL_POSTGRES_HOST" -U "$POSTGRES_ADMIN_USER" -d postgres -t -c \
-    "SELECT 1 FROM pg_roles WHERE rolname='$METABASE_DB_USER';" 2>/dev/null | tr -d '[:space:]')
-  
-  # Проверяем существует ли БД
-  DB_EXISTS=$(PGPASSWORD="$POSTGRES_ADMIN_PASSWORD" psql -h "$FINAL_POSTGRES_HOST" -U "$POSTGRES_ADMIN_USER" -d postgres -t -c \
-    "SELECT 1 FROM pg_database WHERE datname='$METABASE_DB_NAME';" 2>/dev/null | tr -d '[:space:]')
-  
-  if [ "$USER_EXISTS" = "1" ] && [ "$DB_EXISTS" = "1" ]; then
-    echo '✓ User and database already exist in shared PostgreSQL'
-  else
-    echo 'Creating user and database in shared PostgreSQL...'
-    
-    # Создаем пользователя если не существует
-    if [ "$USER_EXISTS" != "1" ]; then
-      PGPASSWORD="$POSTGRES_ADMIN_PASSWORD" psql -h "$FINAL_POSTGRES_HOST" -U "$POSTGRES_ADMIN_USER" -d postgres -c \
-        "CREATE USER \"$METABASE_DB_USER\" WITH PASSWORD '$METABASE_DB_PASSWORD';" 2>/dev/null && \
-        echo '✓ User created' || echo '✗ User creation failed'
-    fi
-    
-    # Создаем БД если не существует
-    if [ "$DB_EXISTS" != "1" ]; then
-      PGPASSWORD="$POSTGRES_ADMIN_PASSWORD" psql -h "$FINAL_POSTGRES_HOST" -U "$POSTGRES_ADMIN_USER" -d postgres -c \
-        "CREATE DATABASE \"$METABASE_DB_NAME\" OWNER \"$METABASE_DB_USER\";" 2>/dev/null && \
-        echo '✓ Database created' || echo '✗ Database creation failed'
-    fi
-  fi
+if [ "$USER_EXISTS" != "1" ]; then
+  echo "Создание пользователя: $MB_USER"
+  psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_ADMIN_USER" -d postgres -c \
+    "CREATE USER \"$MB_USER\" WITH PASSWORD '$MB_PASS';" 2>/dev/null && \
+    echo "✓ Пользователь создан" || echo "⚠ Не удалось создать пользователя"
 else
-  # Для fallback всегда создаем (он должен быть пустым)
-  echo 'Creating user and database in fallback PostgreSQL...'
-  
-  PGPASSWORD="$POSTGRES_ADMIN_PASSWORD" psql -h "$FINAL_POSTGRES_HOST" -U "$POSTGRES_ADMIN_USER" -d postgres -c \
-    "CREATE USER \"$METABASE_DB_USER\" WITH PASSWORD '$METABASE_DB_PASSWORD';" 2>/dev/null && \
-    echo '✓ User created' || echo '⚠ User creation (might already exist)'
-  
-  PGPASSWORD="$POSTGRES_ADMIN_PASSWORD" psql -h "$FINAL_POSTGRES_HOST" -U "$POSTGRES_ADMIN_USER" -d postgres -c \
-    "CREATE DATABASE \"$METABASE_DB_NAME\" OWNER \"$METABASE_DB_USER\";" 2>/dev/null && \
-    echo '✓ Database created' || echo '⚠ Database creation (might already exist)'
+  echo "✓ Пользователь уже существует"
 fi
 
-# Записываем финальный хост в переменную для Docker Compose
-echo "METABASE_FINAL_DB_HOST=$FINAL_POSTGRES_HOST" > /tmp/db_host.env
+# Создание БД Metabase
+echo "Проверка БД $MB_DB..."
+DB_EXISTS=$(psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_ADMIN_USER" -d postgres -t -c \
+  "SELECT 1 FROM pg_database WHERE datname='$MB_DB';" 2>/dev/null | tr -d '[:space:]')
 
-echo '=== METABASE DATABASE INITIALIZATION COMPLETED ==='
+if [ "$DB_EXISTS" != "1" ]; then
+  echo "Создание БД: $MB_DB"
+  psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_ADMIN_USER" -d postgres -c \
+    "CREATE DATABASE \"$MB_DB\" OWNER \"$MB_USER\";" 2>/dev/null && \
+    echo "✓ БД создана" || echo "⚠ Не удалось создать БД"
+else
+  echo "✓ БД уже существует"
+fi
+
+echo "=== ИНИЦИАЛИЗАЦИЯ ЗАВЕРШЕНА ==="
+echo "Metabase будет использовать:"
+echo "  Хост: $PG_HOST"
+echo "  Порт: $PG_PORT"
+echo "  БД: $MB_DB"
+echo "  Пользователь: $MB_USER"
 exit 0

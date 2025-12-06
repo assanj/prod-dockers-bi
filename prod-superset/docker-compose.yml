@@ -18,7 +18,7 @@ services:
       - ../.env           # global
       - .env              # local
       - docker/.env
-      - docker/.env-local
+#      - docker/.env-local
     image: postgres:16
     container_name: superset_db
     restart: unless-stopped
@@ -36,7 +36,7 @@ services:
       - ../.env           # global
       - .env              # local
       - docker/.env
-      - docker/.env-local
+#      - docker/.env-local
     image: assanj/superset-app:latest2025Nov 
     container_name: superset_app
     command: ["/usr/bin/run-server.sh"]
@@ -59,7 +59,7 @@ services:
       - ../.env           # global
       - .env              # local
       - docker/.env
-      - docker/.env-local
+#      - docker/.env-local
     environment:
       - DATABASE_HOST=${DATABASE_HOST:-localhost}
       - DATABASE_PORT=${DATABASE_PORT:-5432}
@@ -85,7 +85,7 @@ services:
       - ../.env           # global
       - .env              # local
       - docker/.env
-      - docker/.env-local
+#      - docker/.env-local
     restart: unless-stopped
     depends_on:
       superset-init:
@@ -107,7 +107,7 @@ services:
       - ../.env           # global
       - .env              # local
       - docker/.env
-      - docker/.env-local
+#      - docker/.env-local
     restart: unless-stopped
     depends_on:
       superset-init:

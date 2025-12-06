@@ -1,0 +1,93 @@
+services:
+  prepare-folders:
+    image: alpine:latest
+    container_name: airflow-prepare-folders
+    command: >
+      sh -c "
+      mkdir -p /data/dags /data/logs /data/plugins &&
+      chown -R 50000:50000 /data &&
+      echo 'Папки подготовлены'"
+    volumes:
+      - ./data:/data
+    network_mode: host
+
+  airflow-init:
+    image: apache/airflow:2.10.0-python3.9
+    container_name: airflow-init
+    depends_on:
+      - prepare-folders
+    env_file:
+      - ../.env           # если файла нет - будет ошибка
+      - .env              # файл в текущей директории
+    volumes:
+      - ./docker-airflow-init-smart.sh:/docker-airflow-init-smart.sh
+      - ./data/logs:/opt/airflow/logs
+    entrypoint: ["/bin/bash"]
+    command: ["/docker-airflow-init-smart.sh"]
+    network_mode: host
+    restart: on-failure
+
+  airflow-webserver:
+    image: apache/airflow:2.10.0-python3.9
+    container_name: airflow-webserver
+    restart: always
+    depends_on:
+      - airflow-init
+    env_file:
+      - ../.env
+      - .env
+    command: webserver
+    network_mode: host
+    volumes:
+      - ./data/dags:/opt/airflow/dags
+      - ./data/logs:/opt/airflow/logs
+      - ./data/plugins:/opt/airflow/plugins
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  airflow-scheduler:
+    image: apache/airflow:2.10.0-python3.9
+    container_name: airflow-scheduler
+    restart: always
+    depends_on:
+      - airflow-init
+    env_file:
+      - ../.env
+      - .env
+    command: scheduler
+    network_mode: host
+    volumes:
+      - ./data/dags:/opt/airflow/dags
+      - ./data/logs:/opt/airflow/logs
+      - ./data/plugins:/opt/airflow/plugins
+    healthcheck:
+      test: ["CMD-SHELL", 'airflow jobs check --job-type SchedulerJob --hostname "$${HOSTNAME}"']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  airflow-worker:
+    image: apache/airflow:2.10.0-python3.9
+    container_name: airflow-worker
+    restart: always
+    depends_on:
+      - airflow-init
+      - airflow-scheduler
+    env_file:
+      - ../.env
+      - .env
+    command: celery worker
+    network_mode: host
+    volumes:
+      - ./data/dags:/opt/airflow/dags
+      - ./data/logs:/opt/airflow/logs
+      - ./data/plugins:/opt/airflow/plugins
+    healthcheck:
+      test: ["CMD-SHELL", 'airflow jobs check --job-type Celery --hostname "$${HOSTNAME}"']
+      interval: 30s
+      timeout: 10s
+      retries: 3

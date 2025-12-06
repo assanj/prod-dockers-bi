@@ -1,0 +1,12 @@
+services:
+  redis:
+    image: redis:7
+    container_name: redis
+    network_mode: host
+    restart: unless-stopped
+    command: redis-server --bind 0.0.0.0 --port 6379
+    volumes:
+      - redis-data:/data
+
+volumes:
+  redis-data:

@@ -1,5 +1,5 @@
-BI-STACK ARCHITECTURE
-=====================
+BI-STACK ARCHITECTURE v2.0
+==========================
 
 ОБЩАЯ СТРУКТУРА
 ---------------
@@ -11,27 +11,39 @@ BI-STACK ARCHITECTURE
 │   ├── docker-compose-non-dev-clickhouse.yml
 │   └── docker/
 │       └── docker-init-smart.sh  # ПОЛНЫЙ скрипт инициализации
-└── prod-metabase/          # Metabase
-    ├── docker-compose.yml
-    └── docker-metabase-init.sh    # ПОЛНЫЙ скрипт инициализации
+├── prod-metabase/          # Metabase
+│   ├── docker-compose.yml
+│   └── docker-metabase-init.sh    # ПОЛНЫЙ скрипт инициализации
+├── prod-redis/             # Общий Redis
+│   └── docker-compose.yml
+├── prod-network/           # Общая сеть + мониторинг
+│   └── docker-compose.yml  # Glances + сеть bi-network
+└── tabix/                  # ClickHouse Web UI
+    └── docker-compose.yml
 
 СЕРВИСЫ
 -------
 
 1. POSTGRESQL (prod-postgres)
 - Контейнер: prod-postgres
-- Сеть: prod-postgres_bi-network (external: false)
-- Том: postgres_data (external: false, name: ${POSTGRES_VOLUME_NAME:-postgres_data})
+- Сеть: bi-network (external: true)
+- Том: postgres_data
 - Порт: 5432
 - Credentials: из .env (POSTGRES_ADMIN_USER/PASSWORD)
-- Аутентификация: md5 (POSTGRES_HOST_AUTH_METHOD)
 
-2. SUPERSET (prod-superset)
+2. REDIS (prod-redis)
+- Контейнер: redis
+- Сеть: bi-network (external: true)
+- Том: redis-data
+- Порт: 6379
+- Без пароля (можно добавить через REDIS_PASSWORD в .env)
+
+3. SUPERSET (prod-superset)
 - Основной контейнер: superset_app (порт 8088)
 - Init контейнер: superset_init (command: ["/app/docker/docker-init-smart.sh"])
-- Worker: superset-worker, superset-worker-beat
-- Redis: superset_cache
+- Worker: superset_worker, superset_worker_beat
 - Fallback БД: superset_db (только с --profile fallback-db)
+- Использует: PostgreSQL (prod-postgres), Redis (redis)
 - Логика скрипта docker-init-smart.sh:
   1. Проверяет доступность prod-postgres:5432
   2. Пытается подключиться как superset:superset
@@ -40,53 +52,132 @@ BI-STACK ARCHITECTURE
   5. Использует shared БД или local fallback
   6. Запускает superset db upgrade, create-admin, init
 
-3. METABASE (prod-metabase)
+4. METABASE (prod-metabase)
 - Основной контейнер: metabase (порт 3000)
 - Init контейнер: metabase_init (command: ["sh", "/docker-metabase-init.sh"])
+- Использует: PostgreSQL (prod-postgres)
 - Логика скрипта docker-metabase-init.sh:
   1. Проверяет доступность prod-postgres:5432
   2. Проверяет существование пользователя metabase и БД metabase через Python/psycopg2
   3. Если не существуют → создает
   4. Аналогичная логика Superset, но для Metabase
-- Зависимость: metabase зависит от metabase-init (service_completed_successfully)
+
+5. GLANCES (prod-network)
+- Контейнер: glances (порты 61208, 61290)
+- Мониторинг Docker и системы
+- Веб-интерфейс: http://localhost:61208
+
+6. TABIX (tabix)
+- Контейнер: tabix (порт 8181)
+- ClickHouse Web UI
+- Подключается к внешнему ClickHouse через host.docker.internal
+- Отдельная сеть (не в bi-network)
 
 СЕТЬ
 ----
-- Имя: prod-postgres_bi-network
+- Имя: bi-network
 - Тип: bridge
-- Создание: автоматически при запуске PostgreSQL (external: false в PostgreSQL compose)
-- Использование: все сервисы подключаются к одной сети
-- Внешнее использование: external: true в Superset и Metabase compose файлах
+- Создание: автоматически при запуске prod-network/docker-compose.yml
+- Использование: все основные сервисы подключаются к одной сети
+- External: true для всех зависимых сервисов
+- Содержит: PostgreSQL, Redis, Superset, Metabase, Glances
 
 ПЕРЕМЕННЫЕ ОКРУЖЕНИЯ (.env)
 ---------------------------
+# PostgreSQL
 POSTGRES_HOST=prod-postgres
 POSTGRES_PORT=5432
 POSTGRES_ADMIN_USER=postgres
 POSTGRES_ADMIN_PASSWORD=postgres
-POSTGRES_HOST_AUTH_METHOD=md5
 
+# Superset
 SUPERSET_DATABASE_USER=superset
 SUPERSET_DATABASE_PASSWORD=superset
 SUPERSET_DATABASE_NAME=superset
 
+# Metabase
 METABASE_DATABASE_USER=metabase
 METABASE_DATABASE_PASSWORD=metabase
 METABASE_DATABASE_NAME=metabase
 
+# Redis
+REDIS_URL=redis://redis:6379/0
+CACHE_REDIS_URL=${REDIS_URL}
+CELERY_BROKER_URL=${REDIS_URL}
+CELERY_RESULT_BACKEND=${REDIS_URL}
+
+# Tabix (ClickHouse)
+CLICKHOUSE_HOST=host.docker.internal
+CLICKHOUSE_PORT=8123
+CLICKHOUSE_USER=default
+CLICKHOUSE_PASSWORD=
+CLICKHOUSE_DB=default
+
 ПОРЯДОК ЗАПУСКА
 ---------------
-1. PostgreSQL: docker compose up -d (создает сеть)
-2. Superset: docker compose -f docker-compose-non-dev-clickhouse.yml up -d
-3. Metabase: docker compose up -d
+1. Сеть и мониторинг: cd prod-network && docker compose up -d
+2. PostgreSQL: cd prod-postgres && docker compose up -d
+3. Redis: cd prod-redis && docker compose up -d
+4. Superset: cd prod-superset && docker compose -f docker-compose-non-dev-clickhouse.yml up -d
+5. Metabase: cd prod-metabase && docker compose up -d
+6. Tabix: cd tabix && docker compose up -d
 
-ВАЖНЫЕ ПРИНЦИПЫ
----------------
+ДОСТУП К СЕРВИСАМ
+-----------------
+- Superset: http://localhost:8088 или http://<VM_IP>:8088
+- Metabase: http://localhost:3000 или http://<VM_IP>:3000
+- Glances: http://localhost:61208 или http://<VM_IP>:61208
+- Tabix: http://localhost:8181 или http://<VM_IP>:8181
+- Redis: localhost:6379
+- PostgreSQL: localhost:5432
+
+
+
+Шаг 2: Список портов для Port Forwarding в VMware
+
+Нужно добавить:
+Сервис	Порт VM	Порт хоста	Описание
+SSH	22	2222	SSH доступ к VM
+ClickHouse HTTP	8123	8123	ClickHouse HTTP интерфейс
+ClickHouse TCP	9000	9000	ClickHouse native protocol
+Apache Airflow	8008	8008	Airflow Web UI
+
+Плюс уже имеющиеся:
+    Superset: 8088
+    Metabase: 3000
+    Glances: 61208
+    Tabix: 8181
+    Redis: 6379
+    PostgreSQL: 5432
+
+
+ВАЖНЫЕ ПРИНЦИПЫ РАБОТЫ С ИИ-ПОМОЩНИКОМ
+--------------------------------------
 - НЕ упрощать код без явного запроса пользователя
 - Init скрипты создают пользователей/БД только если не существуют
 - Все скрипты сохраняются в полном виде без сокращений
-- external: false для сетей/томов в основном проекте (PostgreSQL)
-- external: true для сетей в зависимых проектах (Superset, Metabase)
+- External: true для сетей в зависимых проектах
 - Один .env файл для всех сервисов с дефолтными значениями
 - Переменные подстановки в docker-compose: ${VAR_NAME:-default}
 - Зависимости через depends_on с condition: service_completed_successfully
+
+- НЕ креативить, слушать команды пользователя
+- Делать только то, что говорят
+- Все ответы на один шаг, а не до конца цепочки
+- Полный контроль с стороны пользователя
+- НИКАКИХ упрощений кода, комментариев или оптимизации без явного запроса
+- Не пропадать ни одной строчке уже существующего кода без ведома пользователя
+- Работать только по запросу: вопрос → ответ → подтверждение
+
+ДЛЯ ОЗНАКОМЛЕНИЯ С ПРОЕКТОМ:
+---------------------------
+find ~/prod-dockers-bi -type f -printf "%M %n %u %g %s %TY-%Tm-%Td %TH:%TM %p\n" 2>/dev/null | sort -k8
+
+ОПИСАНИЕ ПРОЕКТА (для контекста ИИ):
+-----------------------------------
+BI-стек с общими ресурсами: PostgreSQL, Redis, сеть.
+Apache Superset и Metabase используют общие БД и кэш.
+Glances для мониторинга.
+Tabix для внешнего ClickHouse.
+Все в Docker, общая сеть bi-network.
+VMware NAT с Port Forwarding для доступа снаружи.

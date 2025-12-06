@@ -1,0 +1,4 @@
+cd ~/prod-dockers-bi/prod-redis
+docker compose up -d
+docker ps --filter name=shared-redis
+docker ps --format "table {{.Names}}\t{{.Status}}" 

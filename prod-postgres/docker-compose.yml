@@ -2,6 +2,7 @@ services:
   postgres:
     image: postgres:16
     container_name: prod-postgres
+    network_mode: host
     restart: unless-stopped
     env_file:
       - path: ../.env  # Общий файл
@@ -15,16 +16,13 @@ services:
       POSTGRES_USER: ${POSTGRES_ADMIN_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:-postgres}
       POSTGRES_HOST_AUTH_METHOD: ${POSTGRES_HOST_AUTH_METHOD:-md5}
+    command: >
+      postgres
+      -c listen_addresses='*'
+      -c port=5432
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - ${POSTGRES_PORT:-5432}:5432
-    networks:
-      - bi-network
-
-networks:
-  bi-network:
-    external: false
+    # ports: НЕ НУЖНЫ при network_mode: host
 
 volumes:
   postgres_data:

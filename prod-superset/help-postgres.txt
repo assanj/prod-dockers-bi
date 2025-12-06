@@ -1,3 +1,16 @@
+# 1. Проверьте что Metabase запущен
+docker ps | grep metabase
+
+# 2. Проверьте на каких интерфейсах слушает
+sudo ss -tlnp | grep :3000
+
+# 3. Если пусто - Metabase не запустился
+docker logs metabase --tail 50
+
+# 4. Проверьте переменные окружения в контейнере
+docker exec metabase env | grep -i jetty
+
+===============================================
 
 
 🔧 СПОСОБ 1: ЧЕРЕЗ DOCKER EXEC (ПРОСТОЙ)

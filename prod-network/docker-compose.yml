@@ -1,0 +1,21 @@
+services:
+  glances:
+    image: nicolargo/glances:latest
+    container_name: glances
+    restart: unless-stopped
+    ports:
+      - "61208:61208"
+      - "61290:61209"  # Измененный порт для API
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /etc/localtime:/etc/localtime:ro
+    environment:
+      - GLANCES_OPT=-w
+#    networks:
+#      - bi-network
+
+#networks:
+#  bi-network:
+#    name: bi-network
+#    driver: bridge
+#    attachable: true

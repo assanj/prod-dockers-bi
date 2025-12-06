@@ -1,0 +1,183 @@
+# -----------------------------------------------------------------------
+# We don't support docker compose for production environments.
+# If you choose to use this type of deployment make sure to
+# create you own docker environment file (docker/.env) with your own
+# unique random secure passwords and SECRET_KEY.
+#
+# For verbose logging during development:
+# - Set SUPERSET_LOG_LEVEL=debug in docker/.env-local for detailed Superset logs
+# -----------------------------------------------------------------------
+x-superset-volumes:
+  &superset-volumes # /app/pythonpath_docker will be appended to the PYTHONPATH in the final container
+  - ./docker:/app/docker # kms: затираем папку из образа локальной папкой!
+  - superset_home:/app/superset_home
+
+#x-common-build: &common-build
+#  context: .
+#  target: dev
+#  cache_from:
+#   - apache/superset-cache:3.10-slim-trixie
+
+services:
+  # redis:
+  #   image: redis:7
+  #   container_name: superset_cache
+  #   restart: unless-stopped
+  #   volumes:
+  #     - redis:/data
+  #   networks:
+  #     - bi-network  # KMS: Added to connect with shared PostgreSQL
+
+  db:
+    env_file:
+      - path: docker/.env # default
+        required: true
+      - path: docker/.env-local # optional override
+        required: false
+    image: postgres:16
+    container_name: superset_db
+    restart: unless-stopped
+    volumes:
+      - db_home:/var/lib/postgresql/data
+      - ./docker/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
+    networks:
+      - bi-network  # KMS: Added to connect with shared PostgreSQL
+    # KMS: This service starts ONLY when explicitly enabled with --profile fallback-db
+    # Used when shared prod-postgres is not available
+    profiles: ["fallback-db"]
+
+  superset:
+    env_file:
+      - path: docker/.env # default
+        required: true
+      - path: docker/.env-local # optional override
+        required: false
+        
+    #build:
+    #  <<: *common-build
+    image: assanj/superset-app:latest2025Nov 
+        
+    container_name: superset_app
+    
+    #command: ["/app/docker/docker-bootstrap.sh", "app-gunicorn"]
+    command: ["/usr/bin/run-server.sh"]  # ← Прямой запуск Gunicorn
+    
+    user: "root"
+    restart: unless-stopped
+    ports:
+      - 8088:8088
+    depends_on:
+      superset-init:
+        condition: service_completed_successfully
+    volumes: *superset-volumes
+    networks:
+      - bi-network  # KMS: Added to connect with shared PostgreSQL
+
+  superset-init:
+    container_name: superset_init    
+    #build:
+    #  <<: *common-build
+    image: assanj/superset-app:latest2025Nov    
+    
+    #command: ["/app/docker/docker-init.sh"]
+    # KMS: Smart database initialization - tries shared PostgreSQL first, falls back to local
+    command: ["/app/docker/docker-init-smart.sh"]
+       
+    env_file:
+      - path: ../.env  # Общий файл
+        required: false
+      - path: docker/.env # default
+        required: false
+      - path: docker/.env-local # optional override
+        required: false
+    environment:
+      - DATABASE_HOST=${DATABASE_HOST:-prod-postgres}
+      - DATABASE_PORT=${DATABASE_PORT:-5432}
+      - DATABASE_USER=${DATABASE_USER:-superset}
+      - DATABASE_PASSWORD=${DATABASE_PASSWORD:-superset}
+      - DATABASE_DB=${DATABASE_DB:-superset}
+      - POSTGRES_ADMIN_USER=${POSTGRES_ADMIN_USER:-postgres}        # ← postgres
+      - POSTGRES_ADMIN_PASSWORD=${POSTGRES_ADMIN_PASSWORD:-postgres} # ← postgres123
+    depends_on: []
+      # redis:
+      #   condition: service_started
+    user: "root"
+    volumes: *superset-volumes
+    healthcheck:
+      disable: true
+    networks:
+      - bi-network  # KMS: Added to connect with shared PostgreSQL
+
+  superset-worker:  
+    #build:
+    #  <<: *common-build
+    image: assanj/superset-worker:latest2025Nov 
+    container_name: superset_worker  
+    command: ["/app/docker/docker-bootstrap.sh", "worker"]
+    env_file:
+      - path: docker/.env # default
+        required: true
+      - path: docker/.env-local # optional override
+        required: false
+    restart: unless-stopped
+    depends_on:
+      superset-init:
+        condition: service_completed_successfully
+    user: "root"
+    volumes: *superset-volumes
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "celery -A superset.tasks.celery_app:app inspect ping -d celery@$$HOSTNAME",
+        ]
+    networks:
+      - bi-network  # KMS: Added to connect with shared PostgreSQL
+
+  superset-worker-beat:  
+    #build:
+    #  <<: *common-build
+    image: assanj/superset-worker-beat:latest2025Nov 
+      
+    container_name: superset_worker_beat
+    command: ["/app/docker/docker-bootstrap.sh", "beat"]
+    env_file:
+      - path: docker/.env # default
+        required: true
+      - path: docker/.env-local # optional override
+        required: false
+    restart: unless-stopped
+    depends_on:
+      superset-init:
+        condition: service_completed_successfully
+    user: "root"
+    volumes: *superset-volumes
+    healthcheck:
+      disable: true
+    networks:
+      - bi-network  # KMS: Added to connect with shared PostgreSQL
+
+# KMS: External network to connect with shared PostgreSQL container
+# This allows Superset to use either:
+# 1. Shared prod-postgres (preferred) - when available in the same network
+# 2. Local superset_db (fallback) - when started with --profile fallback-db
+networks:
+  bi-network:
+    name: bi-network  # Изменить имя
+    external: true    # Изменить с false на true
+
+volumes:
+  superset_home:
+    external: false
+  db_home:
+    external: false
+  # redis:
+  #   external: false
+extra_hosts:
+  - "tstubu24:127.0.0.1"
+  - "localhost:127.0.0.1"    
+# Normal startup - tries to use shared prod-postgres
+# docker compose -f docker-compose-non-dev-clickhouse.yml up -d
+
+# Force local database (when shared PostgreSQL is not available)
+# docker compose -f docker-compose-non-dev-clickhouse.yml --profile fallback-db up -d

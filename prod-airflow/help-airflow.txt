@@ -1,0 +1,78 @@
+cd ~/prod-dockers-bi
+python3 -c "from cryptography.fernet import Fernet; print('AIRFLOW_FERNET_KEY=' + Fernet.generate_key().decode())" >> .env.tmp
+tail -1 .env.tmp
+
+result:
+AIRFLOW_FERNET_KEY=o2KUx3Kaj_uAzKnmm7ml4OK2iBVmFEgqUoiLyD-TZOE=
+
+
+
+
+==============================================
+cd ~/prod-dockers-bi/prod-airflow
+docker compose up -d
+
+# Проверить все контейнеры Airflow
+docker compose ps
+
+# Проверить логи инициализации
+docker logs airflow-init 2>&1 | tail -100
+
+docker logs airflow-init 2>&1 | tail -50
+
+
+curl -s http://localhost:8008/health
+
+========================================================
+docker ps | grep airflow
+docker top airflow-init
+=================================================
+docker exec prod-postgres psql -U postgres -c "DROP DATABASE IF EXISTS airflow;"
+docker exec prod-postgres psql -U postgres -c "DROP USER IF EXISTS airflow;"
+echo "Пользователь airflow удален"
+===============================
+Проверяем какие переменные действительно попадают в контейнер
+bash
+
+cd ~/prod-dockers-bi/prod-airflow && docker compose config | grep -A20 "airflow-init"
+===========================================
+
+docker run --rm --network bi-network \
+  -v $(pwd)/docker-airflow-init.py:/script.py \
+  --env-file ../.env \
+  --env-file .env-airflow \
+  --entrypoint python3 \
+  apache/airflow:2.10.0-python3.9 \
+  /script.py
+  
+  
+  
+cd ~/prod-dockers-bi/prod-airflow
+docker run --rm --network bi-network \
+  --env-file ../.env \
+  --env-file .env-local \
+  -v $(pwd)/docker-airflow-init.py:/script.py \
+  --entrypoint python3 \
+  apache/airflow:2.10.0-python3.9 \
+  /script.py
+ ===============
+ 
+ роверяем реальное подключение к БД
+bash
+
+docker exec airflow-webserver python3 -c "
+import os
+from airflow.settings import Session
+from sqlalchemy import text
+session = Session()
+result = session.execute(text('SELECT current_database(), version()')).fetchone()
+print(f'Database: {result[0]}')
+print(f'Version: {result[1][:50]}...')
+session.close()
+"
+========
+cd ~/prod-dockers-bi/prod-airflow
+docker compose down
+
+# Удалить volumes если нужно
+docker volume rm -f prod-airflow_airflow_dags prod-airflow_airflow_logs prod-airflow_airflow_plugins 2>/dev/null || true
